@@ -37,7 +37,22 @@ class Post_Series {
         add_action('add_meta_boxes', [$this, 'add_series_meta_box']);
         add_action('save_post', [$this, 'save_series_meta_box']);
         add_filter('the_content', [$this, 'display_series_in_content']);
+
+        // Enqueue styles
+        add_action('wp_enqueue_scripts', [$this, 'enqueue_styles']);
+
     }
+
+    // Enqueue styles
+    public function enqueue_styles() {
+        wp_enqueue_style(
+            'post-series-style',
+            plugin_dir_url(__FILE__) . 'post-series.css',
+            [],
+            '1.0'
+        );
+    }
+    
 
     // Create a new taxonomy for series using register_taxonomy
     public function register_series_taxonomy() {
@@ -126,21 +141,55 @@ class Post_Series {
         if (is_singular('post')) {
             $terms = get_the_terms(get_the_ID(), 'series');
             if ($terms && !is_wp_error($terms)) {
-                $series_names = wp_list_pluck($terms, 'name');
-                $part_number = get_post_meta(get_the_ID(), '_series_part', true);
-                
-                $series_text = '<p><strong>This article is part of the series: </strong>' . implode(', ', $series_names);
-                
-                if ($part_number && $part_number > 0) {
-                    $series_text .= ' <strong>(Part ' . esc_html($part_number) . ')</strong>';
+                $series_id = $terms[0]->term_id;
+                $series_name = $terms[0]->name;
+    
+                // Query to get the posts in the same series
+                $query = new WP_Query([
+                    'post_type'      => 'post',
+                    'posts_per_page' => -1,
+                    'tax_query'      => [
+                        [
+                            'taxonomy' => 'series',
+                            'field'    => 'term_id',
+                            'terms'    => $series_id,
+                        ]
+                    ],
+                    'meta_key'       => '_series_part',
+                    'orderby'        => 'meta_value_num',
+                    'order'          => 'ASC'
+                ]);
+    
+                if ($query->have_posts()) {
+                    $series_list = '<div class="post-series-box">';
+                    $series_list .= '<h3>Series: ' . esc_html($series_name) . '</h3>';
+                    $series_list .= '<ul>';
+    
+                    while ($query->have_posts()) {
+                        $query->the_post();
+                        $part_number = get_post_meta(get_the_ID(), '_series_part', true);
+                        $title = get_the_title();
+    
+                        // If the current post
+                        if (get_the_ID() === get_queried_object_id()) {
+                            $series_list .= '<li><strong>Part ' . esc_html($part_number) . ': ' . esc_html($title) . '</strong></li>';
+                        } else {
+                            $series_list .= '<li><a href="' . get_permalink() . '">Part ' . esc_html($part_number) . ': ' . esc_html($title) . '</a></li>';
+                        }
+                    }
+    
+                    $series_list .= '</ul></div>';
+    
+                    wp_reset_postdata();
+    
+                    // Display the list above the content
+                    $content = $series_list . $content;
                 }
-                
-                $series_text .= '</p>';
-                $content = $series_text . $content;
             }
         }
         return $content;
     }
+    
 }
 
 

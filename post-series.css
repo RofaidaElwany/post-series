@@ -1,0 +1,35 @@
+.post-series-box {
+    border: 2px solid #ddd;
+    background: #f9f9f9;
+    padding: 15px;
+    margin-bottom: 20px;
+    border-radius: 8px;
+}
+
+.post-series-box h3 {
+    margin-top: 0;
+    font-size: 18px;
+    color: #333;
+}
+
+.post-series-box ul {
+    list-style: none;
+    padding-left: 0;
+}
+
+.post-series-box li {
+    margin: 5px 0;
+}
+
+.post-series-box li strong {
+    color: #0073aa;
+}
+
+.post-series-box li a {
+    text-decoration: none;
+    color: #0073aa;
+}
+
+.post-series-box li a:hover {
+    text-decoration: underline;
+}
