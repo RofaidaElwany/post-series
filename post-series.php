@@ -3,25 +3,7 @@
  * Plugin Name: Post Series
  * Description: A comprehensive WordPress plugin for managing and displaying post series with part numbering functionality.
  * 
- * Features:
- * - Creates a custom 'series' taxonomy for organizing posts into series
- * - Adds a meta box to post editor for selecting series and setting part numbers
- * - Displays series information at the top of post content with part numbers
- * - Includes security features: nonce verification, permission checks, and autosave protection
- * - Validates part numbers to ensure only positive integers are saved
- * - Uses object-oriented programming approach for clean, maintainable code
- * 
- * Usage:
- * 1. Create series terms through the WordPress admin
- * 2. Edit any post and select a series from the meta box
- * 3. Optionally set a part number for the post
- * 4. The series information will automatically display at the top of the post content
- * 
- * Technical Details:
- * - Uses WordPress taxonomy system for series management
- * - Stores part numbers as post meta data
- * - Implements proper WordPress security practices
- * - Follows WordPress coding standards
+
  * 
  * Version: 1.0
  * Author: Rofaida
@@ -31,165 +13,328 @@
 if ( ! defined( 'ABSPATH' ) ) exit;
 
 class Post_Series {
-
     public function __construct() {
-        add_action('init', [$this, 'register_series_taxonomy']);
-        add_action('add_meta_boxes', [$this, 'add_series_meta_box']);
-        add_action('save_post', [$this, 'save_series_meta_box']);
-        add_filter('the_content', [$this, 'display_series_in_content']);
+          new Assign_posts_to_a_series();
+          new Series_Meta_Box();
+    }       
+}
 
-        // Enqueue styles
-        add_action('wp_enqueue_scripts', [$this, 'enqueue_styles']);
-
-    }
-
-    // Enqueue styles
-    public function enqueue_styles() {
-        wp_enqueue_style(
-            'post-series-style',
-            plugin_dir_url(__FILE__) . 'post-series.css',
-            [],
-            '1.0'
-        );
-    }
-    
-
-    // Create a new taxonomy for series using register_taxonomy
+class Assign_posts_to_a_series {
     public function register_series_taxonomy() {
         register_taxonomy('series', 'post', [
-            'label' => 'Series',
-            'rewrite' => ['slug' => 'series'],
+            'labels' => [
+                'name'          => 'Series',
+                'singular_name' => 'Series',
+                'search_items'  => 'Search Series',
+                'all_items'     => 'All Series',
+                'edit_item'     => 'Edit Series',
+                'update_item'   => 'Update Series',
+                'menu_name'     => 'Series',
+            ],
+            'show_ui'           => true,
+            'show_admin_column' => true,
+            'rewrite'           => ['slug' => 'series'],
             'hierarchical' => false,
+            
         ]);
     }
+    public function __construct() {
+        add_action('init', [$this, 'register_series_taxonomy']);
+    }
 
-    // add a meta box to the post editor
-    public function add_series_meta_box() {
+}
+
+class Series_Meta_Box {
+
+    public function __construct() {
+        add_action('add_meta_boxes', [$this, 'register_meta_box']);
+        add_action('save_post', [$this, 'save_series_meta']);
+        add_action('admin_footer', [$this, 'series_admin_js']);
+        add_action('wp_ajax_add_new_series', [$this, 'handle_add_new_series']);
+        add_action('wp_ajax_get_series_parts', [$this, 'handle_get_series_parts']);
+        add_action('admin_enqueue_scripts', [$this, 'enqueue_admin_assets']);
+    }
+
+    // Register unified meta box and remove default taxonomy box
+    public function register_meta_box() {
+        // Remove default non-hierarchical taxonomy meta box
+        remove_meta_box('tagsdiv-series', 'post', 'side');
+
         add_meta_box(
-            'series_meta_box',
+            'series_meta',
             'Series',
-            [$this, 'render_series_meta_box'],
-            'post', 'side', 'low');
+            [$this, 'render_meta_box'],
+            'post',
+            'side',
+            'default'
+        );
     }
-    
-    // render the meta box
-    public function render_series_meta_box($post) {
-        $series = get_terms(['taxonomy' => 'series', 'hide_empty' => false]);
-        $current_series = wp_get_post_terms($post->ID, 'series', ['fields' => 'ids']);
-        $part = get_post_meta($post->ID, '_series_part', true);
 
-        // Add nonce for security
-        wp_nonce_field('series_meta_box_nonce', 'series_meta_box_nonce');
+    // Render unified meta box: series select + part number
+    public function render_meta_box($post) {
+        wp_nonce_field('save_series_meta', 'series_meta_nonce');
 
-        ?>
-        <p>
-            <label for="post_series">Choose Series:</label><br>
-            <select name="post_series" id="post_series">
-                <option value="">-- None --</option>
-                <?php foreach ($series as $s) : ?>
-                    <option value="<?php echo esc_attr($s->term_id); ?>" 
-                        <?php selected(in_array($s->term_id, $current_series)); ?>>
-                        <?php echo esc_html($s->name); ?>
-                    </option>
-                <?php endforeach; ?>
-            </select>
-        </p>
-        <p>
-            <label for="series_part">Part Number:</label><br>
-            <input type="number" id="series_part" name="series_part" value="<?php echo esc_attr($part); ?>" min="1" style="width:100%;" />
-        </p>
-        <?php
+        $current_terms = wp_get_post_terms($post->ID, 'series', ['fields' => 'ids']);
+        $current_series_id = is_wp_error($current_terms) || empty($current_terms) ? 0 : intval($current_terms[0]);
+        $current_order = get_post_meta($post->ID, '_series_order', true);
+
+        $terms = get_terms([
+            'taxonomy'   => 'series',
+            'hide_empty' => false,
+        ]);
+
+        //series select
+        echo '<p><label for="selected_series"><strong>Series</strong></label><br />';
+        echo '<select id="selected_series" name="selected_series" style="width:100%">';
+        echo '<option value="">— Select Series —</option>';
+        if (!is_wp_error($terms)) {
+            foreach ($terms as $term) {
+                $selected = selected($current_series_id, $term->term_id, false);
+                echo '<option value="' . esc_attr($term->term_id) . '" ' . $selected . '>' . esc_html($term->name) . '</option>';
+            }
+        }
+        echo '</select></p>';
+
+        //add new series
+        echo '<p><button type="button" class="button" id="add_new_series_btn">Add New Series</button></p>';
+        echo '<div id="new_series_form" style="display:none; margin-top:10px;">
+        <input type="text" id="new_series_name" placeholder="Series Name" style="width:70%;" />
+        <button type="button" class="button button-primary" id="save_new_series_btn">Save</button>
+      </div>';
+
+        //part number
+        // echo '<p><label for="series_order"><strong>Part Number</strong></label><br />';
+        // echo '<input type="number" min="1" step="1" id="series_order" name="series_order" value="' . esc_attr($current_order) . '" style="width:100%" />';
+        // echo '</p>';
+
+         //series parts
+        echo '<div id="series_parts_container" style="margin-top:15px;">
+        <strong>Series Parts:</strong>
+        <ul id="series_parts_list" style="list-style:decimal inside; margin-top:10px; padding-left:20px; border:1px solid #ccc; min-height:40px;"></ul>
+        <input type="hidden" name="series_parts_order" id="series_parts_order" value="" />
+        </div>';
+        echo '<style>
+        #series_parts_list li{cursor: grab;}
+        #series_parts_list li:active{cursor: grabbing;}
+        #series_parts_list .ui-sortable-helper{cursor: grabbing !important;}
+        </style>';
     }
+
    
-    // Save the data when the user clicks update/publish 
-    public function save_series_meta_box($post_id) {
-        // Check nonce for security
-        if (!isset($_POST['series_meta_box_nonce']) || !wp_verify_nonce($_POST['series_meta_box_nonce'], 'series_meta_box_nonce')) {
+
+    // Save selected series term and part number
+    public function save_series_meta($post_id) {
+        if (!isset($_POST['series_meta_nonce']) || !wp_verify_nonce($_POST['series_meta_nonce'], 'save_series_meta')) {
             return;
         }
 
-        // Check if user has permissions to edit this post
-        if (!current_user_can('edit_post', $post_id)) {
-            return;
-        }
-
-        // Check if this is an autosave
         if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) {
             return;
         }
 
-        // Save the part number
-        if (isset($_POST['series_part']) && $_POST['series_part'] !== '') {
-            $part_number = intval($_POST['series_part']);
-            if ($part_number > 0) {
-                update_post_meta($post_id, '_series_part', $part_number);
+        $post_type = get_post_type($post_id);
+        if ($post_type !== 'post') {
+            return;
+        }
+
+        if (!current_user_can('edit_post', $post_id)) {
+            return;
+        }
+
+        // Assign selected series
+        if (isset($_POST['selected_series']) && $_POST['selected_series'] !== '') {
+            $term_id = intval($_POST['selected_series']);
+            if ($term_id > 0) {
+                wp_set_post_terms($post_id, [$term_id], 'series', false);
             }
         } else {
-            delete_post_meta($post_id, '_series_part');
+            // Clear series if empty selection
+            wp_set_post_terms($post_id, [], 'series', false);
         }
 
-        // Save the series
-        if (isset($_POST['post_series']) && $_POST['post_series'] !== '') {
-            wp_set_post_terms($post_id, [(int) $_POST['post_series']], 'series');
+        // Save part number meta
+        if (isset($_POST['series_order']) && $_POST['series_order'] !== '') {
+            update_post_meta($post_id, '_series_order', max(1, intval($_POST['series_order'])));
         } else {
-            wp_set_post_terms($post_id, [], 'series');
+            delete_post_meta($post_id, '_series_order');
         }
+
+        if (!empty($_POST['series_parts_order'])) {
+            $ids = explode(',', $_POST['series_parts_order']);
+            $order = 1;
+            foreach ($ids as $id) {
+                update_post_meta(intval($id), '_series_order', $order++);
+            }
+        }
+        
     }
 
-    // display the series in the content
-    public function display_series_in_content($content) {
-        if (is_singular('post')) {
-            $terms = get_the_terms(get_the_ID(), 'series');
-            if ($terms && !is_wp_error($terms)) {
-                $series_id = $terms[0]->term_id;
-                $series_name = $terms[0]->name;
+    // Add new series
+    public function series_admin_js() {
+        global $post;
+        if ($post->post_type !== 'post') return;
+        ?>
+        <script type="text/javascript">
+        jQuery(document).ready(function($){
+            $('#add_new_series_btn').on('click', function(){
+                $('#new_series_form').toggle();
+            });
     
-                // Query to get the posts in the same series
-                $query = new WP_Query([
-                    'post_type'      => 'post',
-                    'posts_per_page' => -1,
-                    'tax_query'      => [
-                        [
-                            'taxonomy' => 'series',
-                            'field'    => 'term_id',
-                            'terms'    => $series_id,
-                        ]
-                    ],
-                    'meta_key'       => '_series_part',
-                    'orderby'        => 'meta_value_num',
-                    'order'          => 'ASC'
-                ]);
+            $('#save_new_series_btn').on('click', function(){
+                var name = $('#new_series_name').val();
+                if(!name) return;
     
-                if ($query->have_posts()) {
-                    $series_list = '<div class="post-series-box">';
-                    $series_list .= '<h3>Series: ' . esc_html($series_name) . '</h3>';
-                    $series_list .= '<ul>';
-    
-                    while ($query->have_posts()) {
-                        $query->the_post();
-                        $part_number = get_post_meta(get_the_ID(), '_series_part', true);
-                        $title = get_the_title();
-    
-                        // If the current post
-                        if (get_the_ID() === get_queried_object_id()) {
-                            $series_list .= '<li><strong>Part ' . esc_html($part_number) . ': ' . esc_html($title) . '</strong></li>';
-                        } else {
-                            $series_list .= '<li><a href="' . get_permalink() . '">Part ' . esc_html($part_number) . ': ' . esc_html($title) . '</a></li>';
-                        }
+                $.post(ajaxurl, {
+                    action: 'add_new_series',
+                    name: name,
+                    nonce: '<?php echo wp_create_nonce("add_new_series_nonce"); ?>'
+                }, function(response){
+                    if(response.success){
+                        var term = response.data;
+                        $('#selected_series').append('<option value="'+term.term_id+'">'+term.name+'</option>');
+                        $('#selected_series').val(term.term_id).trigger('change');
+                        $('#new_series_name').val('');
+                        $('#new_series_form').hide();
+                    } else {
+                        alert(response.data);
                     }
-    
-                    $series_list .= '</ul></div>';
-    
-                    wp_reset_postdata();
-    
-                    // Display the list above the content
-                    $content = $series_list . $content;
+                });
+            });
+        });
+        </script>
+        <script type="text/javascript">
+        jQuery(document).ready(function($){
+            function loadSeriesParts(series_id, current_post_id){
+                if(!series_id) {
+                        $('#series_parts_list').html('<li style="color: blue;">the current post</li>');
+                    return;
                 }
+                $.post(ajaxurl, {
+                    action: 'get_series_parts',
+                    series_id: series_id,
+                    current_post_id: current_post_id,
+                    nonce: '<?php echo wp_create_nonce("get_series_parts_nonce"); ?>'
+                }, function(response){
+                    if(response.success){
+                        $('#series_parts_list').html('');
+                response.data.forEach(function(item){
+                    var extraStyle = item.is_current ? ' style="color: blue;"' : '';
+                    $('#series_parts_list').append(
+                        '<li data-id="'+item.ID+'"'+extraStyle+'>'+item.title+'</li>'
+                    );
+                });
+                        makeSortable();
+                    } else {
+                        $('#series_parts_list').html('<li>New Post</li>');
+                    }
+                });
             }
-        }
-        return $content;
+        
+            function makeSortable(){
+                $('#series_parts_list').sortable({
+                    update: function(){
+                        var order = [];
+                        $('#series_parts_list li').each(function(){
+                            order.push($(this).data('id'));
+                        });
+                        $('#series_parts_order').val(order.join(','));
+                    }
+                });
+            }
+        
+            // عند تغيير السلسلة
+            $('#selected_series').on('change', function(){
+                var series_id = $(this).val();
+                loadSeriesParts(series_id, '<?php echo get_the_ID(); ?>');
+            });
+        
+            // تحميل أول مرة لو فيه سلسلة مختارة
+            loadSeriesParts($('#selected_series').val(), '<?php echo get_the_ID(); ?>');
+        });
+        </script>
+        <?php
     }
-    
+
+
+    public function handle_add_new_series() {
+        if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'add_new_series_nonce')) {
+            wp_send_json_error('Invalid nonce');
+        }
+
+        if (!current_user_can('manage_categories')) {
+            wp_send_json_error('Permission denied');
+        }
+
+        $name = isset($_POST['name']) ? sanitize_text_field($_POST['name']) : '';
+        if (empty($name)) {
+            wp_send_json_error('Series name cannot be empty');
+        }
+
+        $term = wp_insert_term($name, 'series');
+        if (is_wp_error($term)) {
+            wp_send_json_error($term->get_error_message());
+        }
+
+        $term_obj = get_term($term['term_id'], 'series');
+        wp_send_json_success(['term_id' => $term_obj->term_id, 'name' => $term_obj->name]);
+    }
+
+    // Enqueue admin assets for sortable functionality
+    public function enqueue_admin_assets($hook_suffix) {
+        $screen = get_current_screen();
+        if (!$screen || $screen->base !== 'post' || $screen->post_type !== 'post') {
+            return;
+        }
+        wp_enqueue_script('jquery-ui-sortable');
+    }
+
+    // AJAX handler: Get series parts for selected series
+    public function handle_get_series_parts() {
+        if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'get_series_parts_nonce')) {
+            wp_send_json_error('Invalid nonce');
+        }
+
+        $series_id = intval($_POST['series_id'] ?? 0);
+        $current_post_id = intval($_POST['current_post_id'] ?? 0);
+
+        if (!$series_id) {
+            wp_send_json_error('No series selected');
+        }
+
+        $posts = get_posts([
+            'post_type' => 'post',
+            'numberposts' => -1,
+            'tax_query' => [[
+                'taxonomy' => 'series',
+                'field'    => 'term_id',
+                'terms'    => $series_id,
+            ]],
+            'meta_key' => '_series_order',
+            'orderby'  => 'meta_value_num',
+            'order'    => 'ASC',
+        ]);
+
+        $data = [];
+        $found_current = false;
+        foreach ($posts as $p) {
+            if ($p->ID == $current_post_id) $found_current = true;
+            $title = get_the_title($p->ID);
+            if ($p->ID == $current_post_id) {
+                $title = 'the current post';
+            } elseif (empty($title)) {
+                $title = 'Untitled';
+            }
+            $data[] = ['ID' => $p->ID, 'title' => $title, 'is_current' => ($p->ID == $current_post_id)];
+        }
+
+        if (!$found_current && $current_post_id) {
+            $title = 'the current post';
+            $data[] = ['ID' => $current_post_id, 'title' => $title, 'is_current' => true];
+        }
+
+        wp_send_json_success($data);
+    }
+
 }
 
 

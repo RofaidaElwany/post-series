@@ -1,35 +1,19 @@
-.post-series-box {
-    border: 2px solid #ddd;
+#series_parts_list li {
+    cursor: move;
+    /* الماوس يبقى يد */
+    padding: 6px 10px;
     background: #f9f9f9;
-    padding: 15px;
-    margin-bottom: 20px;
-    border-radius: 8px;
+    border: 1px solid #ddd;
+    margin-bottom: 4px;
+    border-radius: 4px;
 }
 
-.post-series-box h3 {
-    margin-top: 0;
-    font-size: 18px;
-    color: #333;
+#series_parts_list li:hover {
+    background: #f0f0f0;
 }
 
-.post-series-box ul {
-    list-style: none;
-    padding-left: 0;
-}
-
-.post-series-box li {
-    margin: 5px 0;
-}
-
-.post-series-box li strong {
-    color: #0073aa;
-}
-
-.post-series-box li a {
-    text-decoration: none;
-    color: #0073aa;
-}
-
-.post-series-box li a:hover {
-    text-decoration: underline;
+#series_parts_list li.ui-sortable-helper {
+    opacity: 0.8;
+    /* العنصر اللي بيتسحب يظهر شفاف */
+    background: #e0e0e0;
 }
