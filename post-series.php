@@ -16,6 +16,34 @@ class Post_Series {
     public function __construct() {
           new Assign_posts_to_a_series();
           new Series_Meta_Box();
+          add_action('wp_enqueue_scripts', [$this, 'enqueue_react_assets']);
+    }
+
+    // Enqueue React build files
+    public function enqueue_react_assets() {
+        // Check if build files exist
+        $build_dir = plugin_dir_path(__FILE__) . 'build/';
+        $js_file = $build_dir . 'index.js';
+        $css_file = $build_dir . 'index.css';
+
+        if (file_exists($js_file)) {
+            wp_enqueue_script(
+                'post-series-react',
+                plugin_dir_url(__FILE__) . 'build/index.js',
+                [],
+                filemtime($js_file),
+                true
+            );
+        }
+
+        if (file_exists($css_file)) {
+            wp_enqueue_style(
+                'post-series-react-style',
+                plugin_dir_url(__FILE__) . 'build/index.css',
+                [],
+                filemtime($css_file)
+            );
+        }
     }       
 }
 
@@ -49,7 +77,6 @@ class Series_Meta_Box {
     public function __construct() {
         add_action('add_meta_boxes', [$this, 'register_meta_box']);
         add_action('save_post', [$this, 'save_series_meta']);
-        add_action('admin_footer', [$this, 'series_admin_js']);
         add_action('wp_ajax_add_new_series', [$this, 'handle_add_new_series']);
         add_action('wp_ajax_get_series_parts', [$this, 'handle_get_series_parts']);
         add_action('admin_enqueue_scripts', [$this, 'enqueue_admin_assets']);
@@ -102,10 +129,6 @@ class Series_Meta_Box {
         <button type="button" class="button button-primary" id="save_new_series_btn">Save</button>
       </div>';
 
-        //part number
-        // echo '<p><label for="series_order"><strong>Part Number</strong></label><br />';
-        // echo '<input type="number" min="1" step="1" id="series_order" name="series_order" value="' . esc_attr($current_order) . '" style="width:100%" />';
-        // echo '</p>';
 
          //series parts
         echo '<div id="series_parts_container" style="margin-top:15px;">
@@ -169,91 +192,6 @@ class Series_Meta_Box {
         
     }
 
-    // Add new series
-    public function series_admin_js() {
-        global $post;
-        if ($post->post_type !== 'post') return;
-        ?>
-        <script type="text/javascript">
-        jQuery(document).ready(function($){
-            $('#add_new_series_btn').on('click', function(){
-                $('#new_series_form').toggle();
-            });
-    
-            $('#save_new_series_btn').on('click', function(){
-                var name = $('#new_series_name').val();
-                if(!name) return;
-    
-                $.post(ajaxurl, {
-                    action: 'add_new_series',
-                    name: name,
-                    nonce: '<?php echo wp_create_nonce("add_new_series_nonce"); ?>'
-                }, function(response){
-                    if(response.success){
-                        var term = response.data;
-                        $('#selected_series').append('<option value="'+term.term_id+'">'+term.name+'</option>');
-                        $('#selected_series').val(term.term_id).trigger('change');
-                        $('#new_series_name').val('');
-                        $('#new_series_form').hide();
-                    } else {
-                        alert(response.data);
-                    }
-                });
-            });
-        });
-        </script>
-        <script type="text/javascript">
-        jQuery(document).ready(function($){
-            function loadSeriesParts(series_id, current_post_id){
-                if(!series_id) {
-                        $('#series_parts_list').html('<li style="color: blue;">the current post</li>');
-                    return;
-                }
-                $.post(ajaxurl, {
-                    action: 'get_series_parts',
-                    series_id: series_id,
-                    current_post_id: current_post_id,
-                    nonce: '<?php echo wp_create_nonce("get_series_parts_nonce"); ?>'
-                }, function(response){
-                    if(response.success){
-                        $('#series_parts_list').html('');
-                response.data.forEach(function(item){
-                    var extraStyle = item.is_current ? ' style="color: blue;"' : '';
-                    $('#series_parts_list').append(
-                        '<li data-id="'+item.ID+'"'+extraStyle+'>'+item.title+'</li>'
-                    );
-                });
-                        makeSortable();
-                    } else {
-                        $('#series_parts_list').html('<li>New Post</li>');
-                    }
-                });
-            }
-        
-            function makeSortable(){
-                $('#series_parts_list').sortable({
-                    update: function(){
-                        var order = [];
-                        $('#series_parts_list li').each(function(){
-                            order.push($(this).data('id'));
-                        });
-                        $('#series_parts_order').val(order.join(','));
-                    }
-                });
-            }
-        
-            // عند تغيير السلسلة
-            $('#selected_series').on('change', function(){
-                var series_id = $(this).val();
-                loadSeriesParts(series_id, '<?php echo get_the_ID(); ?>');
-            });
-        
-            // تحميل أول مرة لو فيه سلسلة مختارة
-            loadSeriesParts($('#selected_series').val(), '<?php echo get_the_ID(); ?>');
-        });
-        </script>
-        <?php
-    }
 
 
     public function handle_add_new_series() {
@@ -285,7 +223,26 @@ class Series_Meta_Box {
         if (!$screen || $screen->base !== 'post' || $screen->post_type !== 'post') {
             return;
         }
+        
+        // Enqueue jQuery UI sortable
         wp_enqueue_script('jquery-ui-sortable');
+        
+        // Enqueue admin JavaScript
+        wp_enqueue_script(
+            'post-series-admin',
+            plugin_dir_url(__FILE__) . 'src/admin.js',
+            ['jquery', 'jquery-ui-sortable'],
+            filemtime(plugin_dir_path(__FILE__) . 'src/admin.js'),
+            true
+        );
+        
+        // Localize script with PHP variables
+        wp_localize_script('post-series-admin', 'postSeriesAdmin', [
+            'ajaxurl' => admin_url('admin-ajax.php'),
+            'addNewSeriesNonce' => wp_create_nonce('add_new_series_nonce'),
+            'getSeriesPartsNonce' => wp_create_nonce('get_series_parts_nonce'),
+            'currentPostId' => get_the_ID()
+        ]);
     }
 
     // AJAX handler: Get series parts for selected series
