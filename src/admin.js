@@ -1,14 +1,12 @@
-/**
- * Post Series Admin JavaScript
- * Handles series management functionality in WordPress admin
- */
 
 jQuery(document).ready(function ($) {
-    // Add new series functionality
+    // Toggle new-series form
     $('#add_new_series_btn').on('click', function () {
         $('#new_series_form').toggle();
+        $('#new_series_name').focus();
     });
 
+    // Save new series via AJAX
     $('#save_new_series_btn').on('click', function () {
         var name = $('#new_series_name').val();
         if (!name) return;
@@ -25,15 +23,21 @@ jQuery(document).ready(function ($) {
                 $('#new_series_name').val('');
                 $('#new_series_form').hide();
             } else {
-                alert(response.data);
+                alert(response.data || 'Error creating series');
             }
         });
     });
 
-    // Load series parts functionality
+    // Load series parts via AJAX
     function loadSeriesParts(series_id, current_post_id) {
         if (!series_id) {
-            $('#series_parts_list').html('<li style="color: blue;">the current post</li>');
+            // If no series selected, show only the current post (if one exists)
+            $('#series_parts_list').html('');
+            if (current_post_id) {
+                $('#series_parts_list').append('<li data-id="' + current_post_id + '" style="color: blue;">the current post</li>');
+                $('#series_parts_order').val(current_post_id);
+            }
+            makeSortable();
             return;
         }
 
@@ -47,18 +51,20 @@ jQuery(document).ready(function ($) {
                 $('#series_parts_list').html('');
                 response.data.forEach(function (item) {
                     var extraStyle = item.is_current ? ' style="color: blue;"' : '';
-                    $('#series_parts_list').append(
-                        '<li data-id="' + item.ID + '"' + extraStyle + '>' + item.title + '</li>'
-                    );
+                    $('#series_parts_list').append('<li data-id="' + item.ID + '"' + extraStyle + '>' + item.title + '</li>');
                 });
+                // Build initial order hidden field
+                var order = [];
+                $('#series_parts_list li').each(function () { order.push($(this).data('id')); });
+                $('#series_parts_order').val(order.join(','));
                 makeSortable();
             } else {
-                $('#series_parts_list').html('<li>New Post</li>');
+                $('#series_parts_list').html('<li>No posts in this series</li>');
             }
         });
     }
 
-    // Make series parts sortable
+    // Make the list sortable and update hidden input on change
     function makeSortable() {
         $('#series_parts_list').sortable({
             update: function () {
@@ -71,12 +77,13 @@ jQuery(document).ready(function ($) {
         });
     }
 
-    // Handle series change
+    // When series selection changes
     $('#selected_series').on('change', function () {
         var series_id = $(this).val();
         loadSeriesParts(series_id, postSeriesAdmin.currentPostId);
     });
 
-    // Load series parts on page load if series is selected
+    // Load on init
     loadSeriesParts($('#selected_series').val(), postSeriesAdmin.currentPostId);
 });
+
